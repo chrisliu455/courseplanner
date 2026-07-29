@@ -25,12 +25,13 @@
     --danger:#A5342C;
   }
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;}
+  html,body{margin:0;padding:0;height:100%;}
   body{
     background:var(--paper);
     color:var(--ink);
     font-family:'Inter',sans-serif;
     min-height:100vh;
+    display:flex;flex-direction:column;
   }
   ::selection{background:var(--brass);color:#fff;}
   h1,h2,h3{font-family:'Source Serif 4',serif;margin:0;}
@@ -42,6 +43,7 @@
     padding:22px 32px;
     background:var(--card);
     border-bottom:2px solid var(--ink);
+    flex:0 0 auto;
   }
   .seal{
     position:relative;width:76px;height:76px;flex:0 0 auto;
@@ -68,15 +70,20 @@
 
   /* ===== Layout ===== */
   .layout{
-    display:grid;grid-template-columns:340px 1fr;gap:0;align-items:start;
+    display:grid;grid-template-columns:340px 1fr;gap:0;
+    flex:1 1 auto;min-height:0;
   }
-  @media (max-width:900px){ .layout{grid-template-columns:1fr;} }
+  @media (max-width:900px){
+    .layout{grid-template-columns:1fr;flex:none;min-height:0;}
+    .sidebar,.main{height:auto !important;overflow:visible !important;}
+  }
 
   .sidebar{
-    padding:24px;border-right:2px solid var(--ink);min-height:calc(100vh - 121px);
+    padding:24px;border-right:2px solid var(--ink);
     background:var(--paper-dark);
+    height:100%;overflow-y:auto;
   }
-  .main{padding:24px 28px;}
+  .main{padding:24px 28px;height:100%;overflow-y:auto;}
 
   .section-label{
     font-family:'Source Serif 4',serif;font-size:15px;font-weight:600;
@@ -175,6 +182,27 @@
   }
   .pool-dropzone.drag-over{background:#F4EBD0;border-color:var(--brass);}
 
+  /* preset course import panel */
+  .preset-select{margin-bottom:10px;}
+  .preset-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+  .preset-toolbar .link-btn{
+    background:none;border:none;padding:0;font-size:11px;color:var(--navy);text-decoration:underline;font-weight:600;
+  }
+  .preset-list{max-height:340px;overflow-y:auto;border:1px solid var(--hairline);border-radius:2px;background:#fff;}
+  .preset-group-title{
+    font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#fff;
+    padding:5px 10px;position:sticky;top:0;
+  }
+  .preset-row{
+    display:flex;align-items:flex-start;gap:8px;padding:7px 10px;border-bottom:1px solid var(--hairline);font-size:12.5px;
+  }
+  .preset-row:last-child{border-bottom:none;}
+  .preset-row input[type=checkbox]{margin-top:2px;flex:0 0 auto;width:auto;}
+  .preset-row .p-name{font-weight:500;line-height:1.3;}
+  .preset-row .p-credit{font-family:'IBM Plex Mono',monospace;color:var(--ink-soft);font-size:11px;white-space:nowrap;margin-left:auto;padding-left:6px;}
+  .preset-row .p-note{font-size:10.5px;color:var(--ink-soft);font-style:italic;margin-top:1px;}
+  .preset-import-count{font-size:11px;color:var(--ink-soft);margin-top:8px;}
+
   .footnote{font-size:11px;color:var(--ink-soft);line-height:1.6;margin-top:6px;}
   .credit-summary-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px;}
   .credit-summary-table td{padding:4px 2px;border-bottom:1px solid var(--hairline);}
@@ -227,7 +255,24 @@
       <div id="programList"></div>
     </div>
 
-    <div class="section-label"><span class="n">2</span>新增課程</div>
+    <div class="section-label"><span class="n">2</span>常用課表匯入</div>
+    <div class="card-box">
+      <label>選擇系所課表範本</label>
+      <select id="presetSelect" class="preset-select">
+        <option value="">— 請選擇 —</option>
+      </select>
+      <div id="presetPanel" style="display:none;">
+        <div class="preset-toolbar">
+          <span class="footnote" style="margin:0;" id="presetHint"></span>
+          <button class="link-btn" id="presetToggleAll">全選 / 取消全選</button>
+        </div>
+        <div class="preset-list" id="presetList"></div>
+        <button class="btn-primary" id="presetImportBtn">＋ 加入勾選課程至待排清單</button>
+        <div class="preset-import-count" id="presetImportMsg"></div>
+      </div>
+    </div>
+
+    <div class="section-label"><span class="n">3</span>新增課程</div>
     <div class="card-box">
       <label>課程名稱</label>
       <input type="text" id="courseName" placeholder="例：資料結構">
@@ -241,7 +286,9 @@
           <select id="courseCategory">
             <option value="主修必修">主修必修</option>
             <option value="主修選修">主修選修</option>
+            <option value="校定必修">校定必修</option>
             <option value="通識">通識</option>
+            <option value="專業學程">專業學程</option>
             <option value="雙主修">雙主修</option>
             <option value="輔系">輔系</option>
             <option value="學程">學程</option>
@@ -254,7 +301,7 @@
       <button class="btn-primary" id="addCourseBtn">＋ 加入待排課程</button>
     </div>
 
-    <div class="section-label"><span class="n">3</span>待排課程池</div>
+    <div class="section-label"><span class="n">4</span>待排課程池</div>
     <input type="text" class="search-box" id="searchCourse" placeholder="搜尋課程名稱…" style="padding:8px 10px;border:1px solid var(--hairline);border-radius:2px;width:100%;font-size:12.5px;">
     <div class="pool-dropzone" id="poolZone">
       <div id="poolContainer"></div>
@@ -264,10 +311,10 @@
 
   <!-- MAIN -->
   <div class="main">
-    <div class="section-label"><span class="n">4</span>四年課表（拖曳課程至對應學期）</div>
+    <div class="section-label"><span class="n">5</span>四年課表（拖曳課程至對應學期）</div>
     <div class="grid4" id="semesterGrid"></div>
 
-    <div class="section-label" style="margin-top:24px;"><span class="n">5</span>學分統計</div>
+    <div class="section-label" style="margin-top:24px;"><span class="n">6</span>學分統計</div>
     <div class="card-box" style="max-width:420px;">
       <table class="credit-summary-table" id="summaryTable"></table>
     </div>
@@ -278,9 +325,63 @@
 /* ================= DATA ================= */
 const CATEGORY_COLORS = {
   '主修必修':'#7A2E2E', '主修選修':'#B08D3F', '通識':'#3B5170',
+  '校定必修':'#9C5B3C', '專業學程':'#4A6FA1',
   '雙主修':'#2F6F6C', '輔系':'#5B4B8A', '學程':'#3F6B4A', '其他':'#6B6558'
 };
 const PROGRAM_CATEGORIES = ['雙主修','輔系','學程'];
+
+/* 常用課表範本：依 113 學年度課程規劃表整理，學分數如標示範圍請依實際規定調整 */
+const DEPARTMENT_PRESETS = {
+  dongji113: {
+    label:'動機工程學系 113學年入學必修課表',
+    groups:[
+      { title:'校定必修', items:[
+        {name:'大學中文', credit:2, category:'校定必修'},
+        {name:'英文領域', credit:8, category:'校定必修', note:'通過本校英語能力檢定考試者，得免修選讀英文2學分'},
+        {name:'通識核心必修', credit:8, category:'通識', note:'範圍8-12學分，需於四個不同核心向度中至少各選一門，且至少修畢四門核心課程'},
+        {name:'通識選修科目', credit:8, category:'通識', note:'範圍8-12學分，自由選修'},
+      ]},
+      { title:'系定必修', items:[
+        {name:'微積分一', credit:3, category:'主修必修'},
+        {name:'微積分二', credit:3, category:'主修必修'},
+        {name:'工程數學一', credit:3, category:'主修必修'},
+        {name:'工程數學二', credit:3, category:'主修必修'},
+        {name:'基礎熱流學一', credit:3, category:'主修必修'},
+        {name:'基礎熱流學二', credit:3, category:'主修必修'},
+        {name:'應用力學一', credit:2, category:'主修必修'},
+        {name:'應用力學二', credit:2, category:'主修必修'},
+        {name:'專題研究一', credit:1, category:'主修必修'},
+        {name:'專題研究二', credit:2, category:'主修必修'},
+        {name:'固體力學與奈米材料實驗', credit:1, category:'主修必修'},
+        {name:'熱流與動力系統實驗', credit:1, category:'主修必修'},
+        {name:'普通化學乙', credit:3, category:'主修必修'},
+        {name:'普通化學實驗', credit:1, category:'主修必修'},
+        {name:'程式設計', credit:3, category:'主修必修'},
+        {name:'工程導論', credit:2, category:'主修必修'},
+        {name:'工程圖學', credit:2, category:'主修必修'},
+        {name:'工場實習', credit:1, category:'主修必修'},
+        {name:'電路學', credit:3, category:'主修必修'},
+        {name:'電子學一', credit:3, category:'主修必修'},
+        {name:'電子電路實驗一', credit:1, category:'主修必修'},
+        {name:'材料力學', credit:3, category:'主修必修'},
+        {name:'機械製造', credit:3, category:'主修必修'},
+        {name:'機械設計', credit:3, category:'主修必修'},
+        {name:'材料科學導論', credit:3, category:'主修必修'},
+      ]},
+      { title:'物理相關課程（五選二，各3學分，優先推薦前三項）', items:[
+        {name:'工程光學', credit:3, category:'主修必修', note:'優先推薦'},
+        {name:'電磁學', credit:3, category:'主修必修', note:'優先推薦；可雙重認證系定必修與專業學程'},
+        {name:'近代物理導論', credit:3, category:'主修必修', note:'優先推薦；可雙重認證系定必修與專業學程'},
+        {name:'普通物理一', credit:3, category:'主修必修'},
+        {name:'普通物理二', credit:3, category:'主修必修'},
+      ]},
+      { title:'專業學程與選修', items:[
+        {name:'專業學程（電控/奈微米/能源/精密機械與智慧製造，擇一修滿）', credit:15, category:'專業學程', note:'需選修至少5門學程內課程（核心必選3門＋選修2門以上）'},
+        {name:'其餘選修', credit:20, category:'主修選修', note:'建議選修「邏輯思考與運算」相關課程'},
+      ]},
+    ]
+  }
+};
 
 const SEMESTERS = [
   {id:'y1s1', year:'大一', term:'上學期'}, {id:'y1s2', year:'大一', term:'下學期'},
@@ -357,6 +458,75 @@ function refreshProgramSelect(cat){
   } else {
     wrap.style.display = 'none'; label.style.display='none';
   }
+}
+
+/* ================= PRESET COURSE IMPORT ================= */
+function populatePresetSelect(){
+  const sel = document.getElementById('presetSelect');
+  Object.keys(DEPARTMENT_PRESETS).forEach(key=>{
+    const opt = document.createElement('option');
+    opt.value = key; opt.textContent = DEPARTMENT_PRESETS[key].label;
+    sel.appendChild(opt);
+  });
+}
+
+function renderPresetPanel(){
+  const key = document.getElementById('presetSelect').value;
+  const panel = document.getElementById('presetPanel');
+  const list = document.getElementById('presetList');
+  document.getElementById('presetImportMsg').textContent = '';
+  if(!key){ panel.style.display='none'; return; }
+  panel.style.display = 'block';
+  const preset = DEPARTMENT_PRESETS[key];
+  document.getElementById('presetHint').textContent = `共 ${preset.groups.reduce((s,g)=>s+g.items.length,0)} 門課程，勾選後可批次加入`;
+  list.innerHTML = '';
+  preset.groups.forEach((group, gi)=>{
+    const gTitle = document.createElement('div');
+    gTitle.className = 'preset-group-title';
+    gTitle.style.background = CATEGORY_COLORS[group.items[0].category] || '#6B6558';
+    gTitle.textContent = group.title;
+    list.appendChild(gTitle);
+    group.items.forEach((item, ii)=>{
+      const row = document.createElement('label');
+      row.className = 'preset-row';
+      const already = state.courses.some(c=>c.name===item.name);
+      row.innerHTML = `
+        <input type="checkbox" data-gi="${gi}" data-ii="${ii}" ${already?'disabled':''}>
+        <div style="flex:1;">
+          <div class="p-name">${item.name}${already?'　<span style="color:var(--ink-soft);font-weight:400;">（已在清單中）</span>':''}</div>
+          ${item.note ? `<div class="p-note">${item.note}</div>` : ''}
+        </div>
+        <div class="p-credit">${item.credit} 學分</div>`;
+      list.appendChild(row);
+    });
+  });
+}
+
+function setupPresetEvents(){
+  document.getElementById('presetSelect').addEventListener('change', renderPresetPanel);
+
+  document.getElementById('presetToggleAll').addEventListener('click', ()=>{
+    const boxes = [...document.querySelectorAll('#presetList input[type=checkbox]:not(:disabled)')];
+    const allChecked = boxes.every(b=>b.checked);
+    boxes.forEach(b=> b.checked = !allChecked);
+  });
+
+  document.getElementById('presetImportBtn').addEventListener('click', ()=>{
+    const key = document.getElementById('presetSelect').value;
+    if(!key) return;
+    const preset = DEPARTMENT_PRESETS[key];
+    const boxes = [...document.querySelectorAll('#presetList input[type=checkbox]:checked:not(:disabled)')];
+    let added = 0;
+    boxes.forEach(b=>{
+      const item = preset.groups[b.dataset.gi].items[b.dataset.ii];
+      if(state.courses.some(c=>c.name===item.name)) return; // safety dedupe
+      state.courses.push({ id:newId(), name:item.name, credit:item.credit, category:item.category, programId:null, semester:null });
+      added++;
+    });
+    document.getElementById('presetImportMsg').textContent = added>0 ? `已加入 ${added} 門課程至待排清單。` : '請先勾選要加入的課程。';
+    renderAll();
+    renderPresetPanel(); // refresh disabled state for already-added items
+  });
 }
 
 /* ================= RENDER: COURSE POOL ================= */
@@ -558,6 +728,8 @@ document.getElementById('progName').addEventListener('keydown', e=>{
 
 /* ================= INIT ================= */
 setupPoolDrop();
+populatePresetSelect();
+setupPresetEvents();
 renderAll();
 </script>
 </body>
