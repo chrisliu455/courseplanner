@@ -121,6 +121,7 @@
     display:flex;align-items:center;justify-content:space-between;gap:8px;
     padding:7px 10px;background:#fff;border:1px solid var(--hairline);border-radius:2px;margin-top:6px;font-size:12.5px;
   }
+  .program-item.disabled{background:var(--paper-dark);opacity:.65;}
   .program-item .tag{
     font-size:9.5px;padding:2px 6px;border-radius:9px;color:#fff;letter-spacing:.04em;text-transform:uppercase;
   }
@@ -204,6 +205,19 @@
   .preset-import-count{font-size:11px;color:var(--ink-soft);margin-top:8px;}
 
   .footnote{font-size:11px;color:var(--ink-soft);line-height:1.6;margin-top:6px;}
+  .checkbox-line{
+    display:flex;align-items:center;gap:7px;margin-top:10px;
+    font-size:12.5px;text-transform:none;letter-spacing:normal;color:var(--ink);cursor:pointer;
+  }
+  .checkbox-line input{width:auto;margin:0;}
+
+  .req-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px;}
+  .req-table td{padding:5px 2px;border-bottom:1px solid var(--hairline);}
+  .req-table td:last-child{text-align:right;font-family:'IBM Plex Mono',monospace;white-space:nowrap;}
+  .req-table tr.met .num-frac{color:var(--green);}
+  .req-table tr.total td{border-top:2px solid var(--ink);border-bottom:none;font-weight:700;padding-top:8px;}
+  .req-table .sub-label{color:var(--ink-soft);font-size:10.5px;display:block;margin-top:1px;}
+
   .credit-summary-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px;}
   .credit-summary-table td{padding:4px 2px;border-bottom:1px solid var(--hairline);}
   .credit-summary-table td:last-child{text-align:right;font-family:'IBM Plex Mono',monospace;}
@@ -241,6 +255,9 @@
     <div class="card-box">
       <label>主修科系</label>
       <input type="text" id="majorName" placeholder="例：資訊工程學系">
+      <label class="checkbox-line">
+        <input type="checkbox" id="majorDongjiCheck"> 主修動機系（依113學年課表，最低畢業學分129）
+      </label>
 
       <label>額外身份（雙主修 / 輔系 / 學程）</label>
       <div class="row2">
@@ -251,6 +268,8 @@
         </select>
         <input type="text" id="progName" placeholder="名稱，例：財金系">
       </div>
+      <label>該身份畢業所需最低學分</label>
+      <input type="number" id="progCredit" min="0" step="1" placeholder="例：20" value="20">
       <button class="btn-ghost" style="width:100%;margin-top:8px;" id="addProgramBtn">＋ 新增身份</button>
       <div id="programList"></div>
     </div>
@@ -330,6 +349,22 @@ const CATEGORY_COLORS = {
 };
 const PROGRAM_CATEGORIES = ['雙主修','輔系','學程'];
 
+/* 畢業學分需求：依各系課表訂定的最低畢業學分與各細項學分，match用來判斷哪些已加入的課程算入該項 */
+const MAJOR_REQUIREMENTS = {
+  dongji113: {
+    label:'動機工程學系 113學年入學',
+    total:129,
+    items:[
+      {label:'大學中文', target:2, match:c=>c.category==='校定必修' && c.name.includes('中文')},
+      {label:'英文', target:8, match:c=>c.category==='校定必修' && c.name.includes('英文')},
+      {label:'通識課程', target:20, match:c=>c.category==='通識'},
+      {label:'系定必修', target:64, match:c=>c.category==='主修必修'},
+      {label:'專業學程', target:15, match:c=>c.category==='專業學程'},
+      {label:'其餘選修', target:20, match:c=>c.category==='主修選修'},
+    ]
+  }
+};
+
 /* 常用課表範本：依 113 學年度課程規劃表整理，學分數如標示範圍請依實際規定調整 */
 const DEPARTMENT_PRESETS = {
   dongji113: {
@@ -337,7 +372,10 @@ const DEPARTMENT_PRESETS = {
     groups:[
       { title:'校定必修', items:[
         {name:'大學中文', credit:2, category:'校定必修'},
-        {name:'英文領域', credit:8, category:'校定必修', note:'通過本校英語能力檢定考試者，得免修選讀英文2學分'},
+        {name:'英文一', credit:2, category:'校定必修', note:'通過本校英語能力檢定考試者，得免修選讀'},
+        {name:'英文二', credit:2, category:'校定必修', note:'通過本校英語能力檢定考試者，得免修選讀'},
+        {name:'英文三', credit:2, category:'校定必修', note:'通過本校英語能力檢定考試者，得免修選讀'},
+        {name:'英文四', credit:2, category:'校定必修', note:'通過本校英語能力檢定考試者，得免修選讀'},
         {name:'通識核心必修', credit:8, category:'通識', note:'範圍8-12學分，需於四個不同核心向度中至少各選一門，且至少修畢四門核心課程'},
         {name:'通識選修科目', credit:8, category:'通識', note:'範圍8-12學分，自由選修'},
       ]},
@@ -392,7 +430,8 @@ const SEMESTERS = [
 
 let state = {
   major: '',
-  programs: [],   // {id, type, name}
+  majorKey: null,   // 若對應 MAJOR_REQUIREMENTS 中的預設系所，畢業學分需求以該系表為準
+  programs: [],   // {id, type, name, requiredCredits}
   courses: [],    // {id, name, credit, category, programId|null, semester|null}
   selectedChip: null,
 };
@@ -406,13 +445,29 @@ function programName(pid){ const p = state.programs.find(x=>x.id===pid); return 
 function totalCredits(){ return state.courses.reduce((s,c)=>s+Number(c.credit||0),0); }
 function plannedCredits(){ return state.courses.filter(c=>c.semester).reduce((s,c)=>s+Number(c.credit||0),0); }
 
+/* 畢業學分需求：若有勾選正式系所（majorKey），以該系表的129學分為主科底標，
+   否則退回「已加入課程學分加總」讓其他系所使用者也能使用。
+   額外身份（雙主修/輔系/學程）各自的所需學分會再加總進來。 */
+function majorRequiredTotal(){
+  if(state.majorKey && MAJOR_REQUIREMENTS[state.majorKey]) return MAJOR_REQUIREMENTS[state.majorKey].total;
+  return null; // null 代表沒有正式規定，用課程加總取代
+}
+function programsRequiredTotal(){
+  return state.programs.filter(p=>p.enabled!==false).reduce((s,p)=>s+Number(p.requiredCredits||0),0);
+}
+function requiredTotalCredits(){
+  const majorReq = majorRequiredTotal();
+  if(majorReq===null) return totalCredits(); // fallback：沒有正式系所規定時，用已加入課程學分加總
+  return majorReq + programsRequiredTotal();
+}
+
 /* ================= RENDER: HEADER ================= */
 function renderHeader(){
   document.getElementById('majorSub').textContent = state.major
     ? `主修：${state.major}` + (state.programs.length ? ' ｜ ' + state.programs.map(p=>`${p.type}：${p.name}`).join('、') : '')
     : '尚未設定科系';
 
-  const total = totalCredits(), planned = plannedCredits(), remain = Math.max(total-planned,0);
+  const total = requiredTotalCredits(), planned = plannedCredits(), remain = Math.max(total-planned,0);
   document.getElementById('ledgerTotal').textContent = total;
   document.getElementById('ledgerPlanned').textContent = planned;
   document.getElementById('ledgerRemain').textContent = remain;
@@ -428,11 +483,21 @@ function renderPrograms(){
   const el = document.getElementById('programList');
   el.innerHTML = '';
   state.programs.forEach(p=>{
+    if(p.enabled === undefined) p.enabled = true;
     const div = document.createElement('div');
-    div.className = 'program-item';
+    div.className = 'program-item' + (p.enabled ? '' : ' disabled');
     div.innerHTML = `
-      <span><span class="tag" style="background:${CATEGORY_COLORS[p.type]}">${p.type}</span> ${p.name}</span>
+      <label style="display:flex;align-items:flex-start;gap:7px;cursor:pointer;flex:1;">
+        <input type="checkbox" data-pid="${p.id}" class="prog-toggle" ${p.enabled ? 'checked' : ''} style="margin-top:2px;">
+        <span><span class="tag" style="background:${CATEGORY_COLORS[p.type]}">${p.type}</span> ${p.name}
+          <span class="sub" style="display:block;color:var(--ink-soft);font-size:10px;margin-top:2px;">所需 ${p.requiredCredits||0} 學分${p.enabled ? '' : '（已停用，不計入畢業學分）'}</span>
+        </span>
+      </label>
       <button class="del-x" data-pid="${p.id}" title="刪除">✕</button>`;
+    div.querySelector('.prog-toggle').addEventListener('change', e=>{
+      p.enabled = e.target.checked;
+      renderAll();
+    });
     div.querySelector('.del-x').addEventListener('click', ()=>{
       state.programs = state.programs.filter(x=>x.id!==p.id);
       // detach courses tied to this program (keep course, clear link) or remove entirely? remove entirely since they belong to this identity
@@ -649,15 +714,44 @@ function setupPoolDrop(){
 /* ================= RENDER: SUMMARY TABLE ================= */
 function renderSummary(){
   const table = document.getElementById('summaryTable');
-  const cats = [...new Set(state.courses.map(c=>c.category))];
-  let rows = '';
-  cats.forEach(cat=>{
-    const list = state.courses.filter(c=>c.category===cat);
-    const total = list.reduce((s,c)=>s+Number(c.credit||0),0);
-    const planned = list.filter(c=>c.semester).reduce((s,c)=>s+Number(c.credit||0),0);
-    rows += `<tr><td>${cat}</td><td>${planned} / ${total} 學分</td></tr>`;
+  const req = state.majorKey ? MAJOR_REQUIREMENTS[state.majorKey] : null;
+
+  if(!req){
+    // 沒有設定正式系所：退回依課程類別加總顯示
+    table.className = 'credit-summary-table';
+    const cats = [...new Set(state.courses.map(c=>c.category))];
+    let rows = '';
+    cats.forEach(cat=>{
+      const list = state.courses.filter(c=>c.category===cat);
+      const total = list.reduce((s,c)=>s+Number(c.credit||0),0);
+      const planned = list.filter(c=>c.semester).reduce((s,c)=>s+Number(c.credit||0),0);
+      rows += `<tr><td>${cat}</td><td>${planned} / ${total} 學分</td></tr>`;
+    });
+    if(!rows) rows = '<tr><td colspan="2" style="color:var(--ink-soft);font-style:italic;">尚未新增課程</td></tr>';
+    table.innerHTML = rows;
+    return;
+  }
+
+  // 有設定正式系所：依畢業學分需求逐項顯示（已排學分 / 應修學分）
+  table.className = 'req-table';
+  let rows = `<tr><td colspan="2" style="font-weight:700;color:var(--maroon);">${req.label}</td></tr>`;
+  req.items.forEach(item=>{
+    const matched = state.courses.filter(item.match);
+    const planned = matched.filter(c=>c.semester).reduce((s,c)=>s+Number(c.credit||0),0);
+    const met = planned >= item.target;
+    rows += `<tr class="${met?'met':''}"><td>${item.label}</td><td><span class="num-frac">${planned} / ${item.target}</span> 學分</td></tr>`;
   });
-  if(!rows) rows = '<tr><td colspan="2" style="color:var(--ink-soft);font-style:italic;">尚未新增課程</td></tr>';
+  const majorPlanned = state.courses.filter(c=>req.items.some(it=>it.match(c))).filter(c=>c.semester).reduce((s,c)=>s+Number(c.credit||0),0);
+  rows += `<tr class="total"><td>主修小計</td><td>${majorPlanned} / ${req.total} 學分</td></tr>`;
+
+  state.programs.forEach(p=>{
+    const list = state.courses.filter(c=>c.programId===p.id);
+    const planned = list.filter(c=>c.semester).reduce((s,c)=>s+Number(c.credit||0),0);
+    const disabledNote = p.enabled===false ? '（已停用）' : '';
+    rows += `<tr${p.enabled===false ? ' style="color:var(--ink-soft);font-style:italic;"' : ''}><td>${p.type}：${p.name}${disabledNote}</td><td>${planned} / ${p.requiredCredits||0} 學分</td></tr>`;
+  });
+
+  rows += `<tr class="total"><td>畢業總計</td><td>${plannedCredits()} / ${requiredTotalCredits()} 學分</td></tr>`;
   table.innerHTML = rows;
 }
 
@@ -675,13 +769,28 @@ document.getElementById('majorName').addEventListener('input', e=>{
   state.major = e.target.value; renderHeader();
 });
 
+document.getElementById('majorDongjiCheck').addEventListener('change', e=>{
+  if(e.target.checked){
+    state.majorKey = 'dongji113';
+    if(!document.getElementById('majorName').value.trim()){
+      document.getElementById('majorName').value = '動機工程學系';
+      state.major = '動機工程學系';
+    }
+  } else {
+    state.majorKey = null;
+  }
+  renderAll();
+});
+
 document.getElementById('addProgramBtn').addEventListener('click', ()=>{
   const type = document.getElementById('progType').value;
   const nameInput = document.getElementById('progName');
+  const creditInput = document.getElementById('progCredit');
   const name = nameInput.value.trim();
   if(!name){ nameInput.focus(); return; }
-  state.programs.push({id:'p'+(uid++), type, name});
-  nameInput.value = '';
+  const requiredCredits = parseFloat(creditInput.value) || 0;
+  state.programs.push({id:'p'+(uid++), type, name, requiredCredits, enabled:true});
+  nameInput.value = ''; creditInput.value = '20';
   renderAll();
 });
 
