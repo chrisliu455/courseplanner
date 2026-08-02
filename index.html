@@ -401,6 +401,10 @@
           </select>
         </div>
       </div>
+      <div id="geTypeWrap" style="display:none;">
+        <label>這門通識課屬於哪一項？</label>
+        <select id="geTypeSelect"></select>
+      </div>
       <button class="btn-primary" id="addCourseBtn">＋ 加入待排課程</button>
     </div>
 
@@ -439,6 +443,21 @@ const PHYSICS_PICK = ['工程光學','電磁學','近代物理導論','普通物
 /* 依課表備註3：這三門得雙重認證為「系定必修」及「專業學程」學分，
    但雙重認證造成的畢業學分缺口，需以本系開設之選修課補足 */
 const DUAL_ELIGIBLE = ['電磁學','工程光學','近代物理導論'];
+
+/* 通識課程分類（109學年度起入學適用四向度制）
+   核心通識須於四大向度中每一向度至少各修一門；其餘為選修（一般）通識。
+   核心＋一般通識學分合計須達20學分。 */
+const GE_TYPES = [
+  {key:'core1', label:'核心通識　向度一', short:'向度一', core:true},
+  {key:'core2', label:'核心通識　向度二', short:'向度二', core:true},
+  {key:'core3', label:'核心通識　向度三', short:'向度三', core:true},
+  {key:'core4', label:'核心通識　向度四', short:'向度四', core:true},
+  {key:'general', label:'一般通識（選修通識）', short:'一般通識', core:false},
+];
+function geTypeLabel(key){
+  const t = GE_TYPES.find(x=>x.key===key);
+  return t ? t.short : '未指定向度';
+}
 
 /* 四大專業學程課程規劃（113年以後入學適用）
    規定：一個學程須選修5門（含）以上學程內課程，
@@ -497,7 +516,6 @@ const MAJOR_REQUIREMENTS = {
     ],
     zeroCredit:[
       {key:'pe', label:'體育（1～3年級必修）'},
-      {key:'service', label:'服務學習（畢業前須完成60小時）'},
       {key:'conduct', label:'操行（每學期成績及格）'},
     ]
   }
@@ -514,8 +532,6 @@ const DEPARTMENT_PRESETS = {
         {name:'英文二', credit:2, category:'校定必修', note:'通過本校英語能力檢定考試者，得免修選讀'},
         {name:'英文三', credit:2, category:'校定必修', note:'通過本校英語能力檢定考試者，得免修選讀'},
         {name:'英文四', credit:2, category:'校定必修', note:'通過本校英語能力檢定考試者，得免修選讀'},
-        {name:'通識核心必修', credit:8, category:'通識', note:'範圍8-12學分，需於四個不同核心向度中至少各選一門，且至少修畢四門核心課程'},
-        {name:'通識選修科目', credit:8, category:'通識', note:'範圍8-12學分，自由選修'},
       ]},
       { title:'系定必修', items:[
         {name:'微積分一', credit:3, category:'主修必修'},
@@ -551,10 +567,6 @@ const DEPARTMENT_PRESETS = {
         {name:'普通物理一', credit:3, category:'主修必修'},
         {name:'普通物理二', credit:3, category:'主修必修'},
       ]},
-      { title:'專業學程與選修', items:[
-        {name:'專業學程（電控/奈微米/能源/精密機械與智慧製造，擇一修滿）', credit:15, category:'專業學程', note:'需選修至少5門學程內課程（核心必選3門＋選修2門以上）'},
-        {name:'其餘選修', credit:20, category:'主修選修', note:'建議選修「邏輯思考與運算」相關課程'},
-      ]},
     ]
   }
 };
@@ -572,7 +584,7 @@ let state = {
   programTrack: null, // 選定的專業學程（電控/奈微米/能源/精密機械與智慧製造）
   programs: [],   // {id, type, name, requiredCredits, enabled}
   courses: [],    // {id, name, credit, category, programId|null, semester|null, dualCount}
-  zeroReq: {},    // 0學分必修項目（體育/服務學習/操行）完成狀態
+  zeroReq: {},    // 0學分必修項目（體育/操行）完成狀態
   selectedChip: null,
 };
 let uid = 1;
@@ -671,10 +683,11 @@ function computeGraduation(){
     });
     return {filled, rows};
   }
-  const fChinese = fillFixed(chineseC, 2);
-  const fEnglish = fillFixed(englishC, 8);
-  const fGe      = fillFixed(geC, Infinity); // 通識不設上限，超修學分仍計入通識
-  const fDept    = fillFixed(deptCoreC, 58);
+  // 固定類別一律不設上限，超修學分全數認列（不會被丟棄）
+  const fChinese = fillFixed(chineseC, Infinity);
+  const fEnglish = fillFixed(englishC, Infinity);
+  const fGe      = fillFixed(geC, Infinity);
+  const fDept    = fillFixed(deptCoreC, Infinity);
 
   // 競合類別依實際配置結果列出
   function fromDetail(bucket){
@@ -747,7 +760,26 @@ function computeGraduation(){
     };
   }
 
-  return {raw, targets, counted, countedTotal, actualCredits, contributors,
+  // ---- 核心通識四向度：每一向度至少一門 ----
+  const geDims = GE_TYPES.filter(t=>t.core).map(t=>{
+    const list = geC.filter(c=>c.geType===t.key);
+    return {key:t.key, short:t.short, count:list.length,
+            credits:sum(list), names:list.map(c=>c.name), met:list.length>=1};
+  });
+  const geGeneral = geC.filter(c=>c.geType==='general');
+  const geUnset   = geC.filter(c=>!c.geType);
+  const geCheck = {
+    dims: geDims,
+    dimsMet: geDims.every(d=>d.met),
+    coreCourses: geDims.reduce((s,d)=>s+d.count,0),
+    coreCredits: geDims.reduce((s,d)=>s+d.credits,0),
+    generalCredits: sum(geGeneral),
+    unset: geUnset.map(c=>c.name),
+    totalCredits: sum(geC),
+    totalMet: sum(geC) >= 20,
+  };
+
+  return {raw, targets, counted, countedTotal, actualCredits, contributors, geCheck,
           dualCredits, dualC, shortfall, detail, cascadeC, unallocated,
           physicsCheck, trackCheck};
 }
@@ -804,6 +836,16 @@ function autoProgramId(category){
   if(!PROGRAM_CATEGORIES.includes(category)) return null;
   const list = programsByCategory(category);
   return list.length ? list[0].id : null;
+}
+
+/* 通識向度選單：僅在課程類別為「通識」時顯示 */
+function populateGeTypeSelect(){
+  const sel = document.getElementById('geTypeSelect');
+  sel.innerHTML = GE_TYPES.map(t=>`<option value="${t.key}">${t.label}</option>`).join('');
+}
+function refreshGeTypeVisibility(){
+  const cat = document.getElementById('courseCategory').value;
+  document.getElementById('geTypeWrap').style.display = (cat==='通識') ? 'block' : 'none';
 }
 
 /* ================= PRESET COURSE IMPORT ================= */
@@ -866,7 +908,7 @@ function setupPresetEvents(){
     boxes.forEach(b=>{
       const item = preset.groups[b.dataset.gi].items[b.dataset.ii];
       if(state.courses.some(c=>c.name===item.name)) return; // safety dedupe
-      state.courses.push({ id:newId(), name:item.name, credit:item.credit, category:item.category, programId:null, semester:null });
+      state.courses.push({ id:newId(), name:item.name, credit:item.credit, category:item.category, programId:null, geType:item.geType||null, semester:null });
       added++;
     });
     document.getElementById('presetImportMsg').textContent = added>0 ? `已加入 ${added} 門課程至待排清單。` : '請先勾選要加入的課程。';
@@ -904,7 +946,9 @@ function makeChip(course){
   chip.draggable = true;
   chip.dataset.id = course.id;
   chip.style.borderLeftColor = CATEGORY_COLORS[course.category] || '#6B6558';
-  const subText = course.programId ? programName(course.programId) : course.category;
+  const subText = course.programId ? programName(course.programId)
+    : (course.category==='通識' && course.geType) ? `通識 · ${geTypeLabel(course.geType)}`
+    : course.category;
   const isScheduled = !!course.semester;
   const removeIcon = isScheduled ? '↩' : '✕';
   const removeTitle = isScheduled ? '移回待排課程池' : '刪除課程';
@@ -1061,7 +1105,7 @@ function renderSummary(){
     block.items.forEach(it=>{
       const val = g.counted[it.key], tgt = it.target;
       const met = val >= tgt;
-      const over = ((it.key==='elective' || it.key==='ge') && val > tgt)
+      const over = (val > tgt)
         ? `<span class="gr-note" style="color:var(--green);">已超修 ${val-tgt} 學分，全數計入本項</span>` : '';
       html += `<div class="grad-row ${met?'met':''}">
         <span class="gr-name">${it.label}${it.note?`<span class="gr-note">${it.note}</span>`:''}${over}</span>
@@ -1092,6 +1136,32 @@ function renderSummary(){
         html += `<div class="cd-empty">未計入（本項已達上限）：${excluded.map(r=>r.name).join('、')}</div>`;
       }
       html += `</details>`;
+
+      // ===== 通識：核心四向度檢核 =====
+      if(it.key==='ge'){
+        const q = g.geCheck;
+        html += `<div class="check-box">
+          <div class="check-line" style="font-weight:700;">
+            <span>核心通識四大向度（每向度至少一門）</span>
+            <span>${q.dims.filter(d=>d.met).length} / 4 向度　${chk(q.dimsMet)}</span>
+          </div>`;
+        q.dims.forEach(d=>{
+          html += `<div class="check-line">
+            <span>${d.short}</span>
+            <span>${d.count ? `${d.names.join('、')}（${d.credits}學分）` : '<span style="color:var(--danger);">尚未修習</span>'}</span>
+          </div>`;
+        });
+        html += `<div class="check-line" style="border-top:1px solid var(--hairline);margin-top:3px;padding-top:4px;">
+            <span>核心通識合計</span><span>${q.coreCourses} 門 / ${q.coreCredits} 學分</span></div>
+          <div class="check-line"><span>一般通識（選修通識）</span><span>${q.generalCredits} 學分</span></div>
+          <div class="check-line" style="font-weight:700;">
+            <span>核心＋一般合計</span><span>${q.totalCredits} / 20 學分　${chk(q.totalMet)}</span></div>`;
+        if(q.unset.length){
+          html += `<div class="check-detail" style="color:var(--danger);">
+            尚未指定向度的通識課：${q.unset.join('、')}（不計入四向度檢核）</div>`;
+        }
+        html += `</div>`;
+      }
 
       // ===== 物理五選二：門數檢核 =====
       if(it.key==='physics'){
@@ -1270,6 +1340,8 @@ document.getElementById('addProgramBtn').addEventListener('click', ()=>{
   renderAll();
 });
 
+document.getElementById('courseCategory').addEventListener('change', refreshGeTypeVisibility);
+
 document.getElementById('addCourseBtn').addEventListener('click', ()=>{
   const nameEl = document.getElementById('courseName');
   const creditEl = document.getElementById('courseCredit');
@@ -1288,7 +1360,9 @@ document.getElementById('addCourseBtn').addEventListener('click', ()=>{
     return;
   }
 
-  state.courses.push({ id:newId(), name, credit, category, programId, semester:null });
+  const geType = (category==='通識') ? document.getElementById('geTypeSelect').value : null;
+
+  state.courses.push({ id:newId(), name, credit, category, programId, geType, semester:null });
   nameEl.value=''; creditEl.value='';
   nameEl.focus();
   renderAll();
@@ -1383,6 +1457,8 @@ document.getElementById('importFile').addEventListener('change', e=>{
 setupPoolDrop();
 populatePresetSelect();
 populateTrackSelect();
+populateGeTypeSelect();
+refreshGeTypeVisibility();
 setupPresetEvents();
 renderAll();
 </script>
