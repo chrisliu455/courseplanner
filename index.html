@@ -338,6 +338,9 @@
       <label class="checkbox-line">
         <input type="checkbox" id="majorDongjiCheck"> 主修動機系（依113學年課表，最低畢業學分129）
       </label>
+      <label class="checkbox-line">
+        <input type="checkbox" id="minorQfCheck"> 輔系計財系（須加修至少20學分並修畢指定科目）
+      </label>
       <div id="trackWrap" style="display:none;">
         <label>選擇專業學程（四學程擇一修畢）</label>
         <select id="trackSelect">
@@ -459,6 +462,27 @@ function geTypeLabel(key){
   return t ? t.short : '未指定向度';
 }
 
+/* 輔系規定（依各系公告）
+   計財系：除應滿足主學系規定最低學分外，應加修計財系規定之專業（門）必修科目至少20學分，
+   且須修畢下列指定科目。*/
+const MINOR_PROGRAMS = {
+  qf:{
+    label:'計量財務金融學系 輔系',
+    minCredits:20,
+    required:[
+      {name:'經濟學原理一', credit:3, group:'經濟學原理一、二（六學分）'},
+      {name:'經濟學原理二', credit:3, group:'經濟學原理一、二（六學分）'},
+      {name:'個體經濟學一', credit:3, group:'個體經濟學一（三學分）'},
+      {name:'財務管理',     credit:3, group:'財務管理（三學分）'},
+      {name:'衍生性金融市場', credit:3, group:'衍生性金融市場（三學分）'},
+      {name:'統計學一',     credit:3, group:'統計學一、二（六學分）'},
+      {name:'統計學二',     credit:3, group:'統計學一、二（六學分）'},
+    ]
+  }
+};
+function activeMinor(){ return state.minorQf ? MINOR_PROGRAMS.qf : null; }
+function minorCourseNames(){ const m=activeMinor(); return m ? m.required.map(r=>r.name) : []; }
+
 /* 四大專業學程課程規劃（113年以後入學適用）
    規定：一個學程須選修5門（含）以上學程內課程，
    包括核心課程3門必選，選修課程（大學部或研究所）選2門（含）以上。*/
@@ -523,6 +547,20 @@ const MAJOR_REQUIREMENTS = {
 
 /* 常用課表範本：依 113 學年度課程規劃表整理，學分數如標示範圍請依實際規定調整 */
 const DEPARTMENT_PRESETS = {
+  qfMinor: {
+    label:'計量財務金融學系 輔系必修科目',
+    groups:[
+      { title:'輔系須修畢之指定科目（至少20學分）', items:[
+        {name:'經濟學原理一', credit:3, category:'輔系'},
+        {name:'經濟學原理二', credit:3, category:'輔系'},
+        {name:'個體經濟學一', credit:3, category:'輔系'},
+        {name:'財務管理',     credit:3, category:'輔系'},
+        {name:'衍生性金融市場', credit:3, category:'輔系'},
+        {name:'統計學一',     credit:3, category:'輔系'},
+        {name:'統計學二',     credit:3, category:'輔系'},
+      ]},
+    ]
+  },
   dongji113: {
     label:'動機工程學系 113學年入學必修課表',
     groups:[
@@ -560,8 +598,7 @@ const DEPARTMENT_PRESETS = {
         {name:'機械設計', credit:3, category:'主修必修'},
         {name:'材料科學導論', credit:3, category:'主修必修'},
       ]},
-      { title:'物理相關課程（五選二，各3學分，優先推薦前三項）', items:[
-        {name:'工程光學', credit:3, category:'主修必修', note:'優先推薦'},
+      { title:'物理相關課程（五選二，各3學分，優先推薦前三項）', items:[        {name:'工程光學', credit:3, category:'主修必修', note:'優先推薦'},
         {name:'電磁學', credit:3, category:'主修必修', note:'優先推薦；可雙重認證系定必修與專業學程'},
         {name:'近代物理導論', credit:3, category:'主修必修', note:'優先推薦；可雙重認證系定必修與專業學程'},
         {name:'普通物理一', credit:3, category:'主修必修'},
@@ -582,6 +619,7 @@ let state = {
   major: '',
   majorKey: null,   // 若對應 MAJOR_REQUIREMENTS 中的預設系所，畢業學分需求以該系表為準
   programTrack: null, // 選定的專業學程（電控/奈微米/能源/精密機械與智慧製造）
+  minorQf: false,     // 是否輔系計量財務金融學系
   programs: [],   // {id, type, name, requiredCredits, enabled}
   courses: [],    // {id, name, credit, category, programId|null, semester|null, dualCount}
   zeroReq: {},    // 0學分必修項目（體育/操行）完成狀態
@@ -610,7 +648,8 @@ function programsRequiredTotal(){
 function requiredTotalCredits(){
   const majorReq = majorRequiredTotal();
   if(majorReq===null) return totalCredits(); // fallback：沒有正式系所規定時，用已加入課程學分加總
-  return majorReq + programsRequiredTotal();
+  const minor = activeMinor();
+  return majorReq + programsRequiredTotal() + (minor ? minor.minCredits : 0);
 }
 
 /* ===== 畢業標準計算 =====
@@ -631,33 +670,43 @@ function computeGraduation(){
   const physicsC = planned.filter(c=>c.category==='主修必修' && PHYSICS_PICK.includes(c.name));
   const deptCoreC= planned.filter(c=>c.category==='主修必修' && !PHYSICS_PICK.includes(c.name));
 
-  // ---- 競合類別：可能同時滿足 物理 / 學程 / 其餘選修 ----
+  // ---- 競合類別：一門課可能同時符合多個類別 ----
+  // 優先序：輔系 → 物理五選二 → 專業學程 → 通識 → 其餘選修
+  // （校定必修的中文/英文與系定必修不參與競合，維持獨立計算）
+  const minor = activeMinor();
+  const minorNames = minorCourseNames();
   const cascadeC = planned.filter(c=>
+    c.category==='通識' ||
     (c.category==='主修必修' && PHYSICS_PICK.includes(c.name)) ||
-    c.category==='專業學程' || c.category==='主修選修' || c.category==='其他'
+    c.category==='專業學程' || c.category==='主修選修' || c.category==='其他' ||
+    c.category==='輔系' || minorNames.includes(c.name)
   );
 
-  const caps = {physics:6, program:15, elective:Infinity}; // 其餘選修不設上限，超修學分仍認列
-  const alloc = {physics:0, program:0, elective:0};
-  const detail = {};   // courseId -> {physics, program, elective}
+  const ORDER = ['minor','physics','program','ge','elective'];
+  const caps = {minor:Infinity, physics:6, program:15, ge:Infinity, elective:Infinity};
+  const alloc = {minor:0, physics:0, program:0, ge:0, elective:0};
+  const detail = {};
   const remain = new Map();
-  cascadeC.forEach(c=>{ remain.set(c.id, Number(c.credit||0)); detail[c.id]={physics:0,program:0,elective:0}; });
+  cascadeC.forEach(c=>{
+    remain.set(c.id, Number(c.credit||0));
+    detail[c.id]={minor:0,physics:0,program:0,ge:0,elective:0};
+  });
 
   // 雙重認證：學分額外再計入專業學程一次（不消耗該課本身的可配置學分）
   const dualC = physicsC.filter(c=>c.dualCount && DUAL_ELIGIBLE.includes(c.name));
   const dualCredits = Math.min(sum(dualC), caps.program);
   alloc.program = dualCredits;
 
-  // 判斷一門課是否有資格填入某個類別
   function eligible(c, bucket){
+    if(bucket==='minor')    return !!minor && minorNames.includes(c.name);
     if(bucket==='physics')  return c.category==='主修必修' && PHYSICS_PICK.includes(c.name);
     if(bucket==='program')  return c.category==='專業學程' || trackList.includes(c.name);
+    if(bucket==='ge')       return c.category==='通識';
     if(bucket==='elective') return true;   // 其餘選修為最終承接類別
     return false;
   }
 
-  // 依優先序逐一填滿
-  ['physics','program','elective'].forEach(bucket=>{
+  ORDER.forEach(bucket=>{
     cascadeC.forEach(c=>{
       if(!eligible(c,bucket)) return;
       const space = caps[bucket] - alloc[bucket];
@@ -686,7 +735,6 @@ function computeGraduation(){
   // 固定類別一律不設上限，超修學分全數認列（不會被丟棄）
   const fChinese = fillFixed(chineseC, Infinity);
   const fEnglish = fillFixed(englishC, Infinity);
-  const fGe      = fillFixed(geC, Infinity);
   const fDept    = fillFixed(deptCoreC, Infinity);
 
   // 競合類別依實際配置結果列出
@@ -698,11 +746,12 @@ function computeGraduation(){
   const contributors = {
     chinese: fChinese.rows,
     english: fEnglish.rows,
-    ge:      fGe.rows,
+    ge:      fromDetail('ge'),
     deptCore:fDept.rows,
     physics: fromDetail('physics'),
     program: fromDetail('program'),
     elective:fromDetail('elective'),
+    minor:   fromDetail('minor'),
   };
   // 雙重認證的課程額外列進專業學程
   dualC.forEach(c=>{
@@ -713,7 +762,7 @@ function computeGraduation(){
   const counted = {
     chinese: fChinese.filled,
     english: fEnglish.filled,
-    ge:      fGe.filled,
+    ge:      alloc.ge,
     deptCore:fDept.filled,
     physics: alloc.physics,
     program: alloc.program,
@@ -775,11 +824,33 @@ function computeGraduation(){
     coreCredits: geDims.reduce((s,d)=>s+d.credits,0),
     generalCredits: sum(geGeneral),
     unset: geUnset.map(c=>c.name),
-    totalCredits: sum(geC),
-    totalMet: sum(geC) >= 20,
+    totalCredits: alloc.ge,
+    totalMet: alloc.ge >= 20,
   };
 
-  return {raw, targets, counted, countedTotal, actualCredits, contributors, geCheck,
+  // ---- 輔系檢核：指定科目是否修畢 ＋ 學分是否達標 ----
+  let minorCheck = null;
+  if(minor){
+    const groups = [];
+    minor.required.forEach(r=>{
+      let grp = groups.find(x=>x.label===r.group);
+      if(!grp){ grp={label:r.group, courses:[]}; groups.push(grp); }
+      grp.courses.push({name:r.name, taken: planned.some(c=>c.name===r.name)});
+    });
+    groups.forEach(grp=>{ grp.met = grp.courses.every(c=>c.taken); });
+    const missing = minor.required.filter(r=> !planned.some(c=>c.name===r.name)).map(r=>r.name);
+    minorCheck = {
+      label: minor.label,
+      minCredits: minor.minCredits,
+      groups, missing,
+      subjectsMet: missing.length===0,
+      credits: alloc.minor,
+      creditsMet: alloc.minor >= minor.minCredits,
+      allMet: missing.length===0 && alloc.minor >= minor.minCredits,
+    };
+  }
+
+  return {raw, targets, counted, countedTotal, actualCredits, contributors, geCheck, minorCheck,
           dualCredits, dualC, shortfall, detail, cascadeC, unallocated,
           physicsCheck, trackCheck};
 }
@@ -1197,20 +1268,68 @@ function renderSummary(){
     html += `</div>`;
   });
 
+  // ===== 輔系檢核 =====
+  if(g.minorCheck){
+    const m = g.minorCheck;
+    html += `<div class="grad-block">
+      <div class="grad-block-title" style="background:#5B4B8A">
+        <span>輔系　${m.label}</span><span>${m.credits} / ${m.minCredits} 學分</span>
+      </div>
+      <div class="grad-row ${m.creditsMet?'met':''}">
+        <span class="gr-name">加修學分（須達 ${m.minCredits} 學分）
+          <span class="gr-note">除主學系最低學分外另計，不佔用主修各分項學分</span></span>
+        ${bar(m.credits, m.minCredits)}
+        <span class="gr-num">${m.credits} / ${m.minCredits}</span>
+      </div>
+      <div class="check-box">
+        <div class="check-line" style="font-weight:700;">
+          <span>須修畢之指定科目</span>
+          <span>${m.groups.filter(x=>x.met).length} / ${m.groups.length} 項　${chk(m.subjectsMet)}</span>
+        </div>`;
+    m.groups.forEach(grp=>{
+      html += `<div class="check-line">
+        <span>${grp.label}</span>
+        <span>${grp.courses.map(c=>c.taken
+          ? `<span style="color:var(--green);">✓ ${c.name}</span>`
+          : `<span style="color:var(--danger);">✗ ${c.name}</span>`).join('　')}</span>
+      </div>`;
+    });
+    if(m.missing.length){
+      html += `<div class="check-detail" style="color:var(--danger);">尚缺科目：${m.missing.join('、')}</div>`;
+    }
+    html += `</div>`;
+
+    const rows = g.contributors.minor || [];
+    html += `<details class="course-detail" data-key="minor" ${openDetails.has('minor')?'open':''}>
+      <summary>計入本項的課程（${rows.length} 門，共 ${m.credits} 學分）</summary>`;
+    if(!rows.length){
+      html += `<div class="cd-empty">尚無課程計入輔系。請以「新增課程」加入計財系科目，課名須與規定一致。</div>`;
+    } else {
+      rows.forEach(r=>{
+        const partial = r.allocated < r.credit
+          ? `<span class="cd-tag">部分計入，另 ${r.credit-r.allocated} 學分遞補至其他類別</span>` : '';
+        html += `<div class="cd-row"><span class="cd-name">${r.name}${partial}</span><span class="cd-num">${r.allocated} 學分</span></div>`;
+      });
+    }
+    html += `</details></div>`;
+  }
+
   // ===== 學分配置明細（僅顯示有跨類別遞補的課程）=====
   const cascaded = g.cascadeC.filter(c=>{
     const d = g.detail[c.id];
-    return [d.physics,d.program,d.elective].filter(v=>v>0).length > 1;
+    return [d.minor,d.physics,d.program,d.ge,d.elective].filter(v=>v>0).length > 1;
   });
   if(cascaded.length){
     html += `<div class="check-box" style="margin-top:4px;">
       <div class="check-line" style="font-weight:700;"><span>學分遞補配置</span><span></span></div>
-      <div class="check-detail">下列課程學分因前一類別已額滿而向後遞補（優先序：物理五選二 → 專業學程 → 其餘選修）</div>`;
+      <div class="check-detail">下列課程學分因前一類別已額滿而向後遞補（優先序：輔系 → 物理五選二 → 專業學程 → 通識 → 其餘選修）</div>`;
     cascaded.forEach(c=>{
       const d = g.detail[c.id];
       const parts = [];
-      if(d.physics>0) parts.push(`物理 ${d.physics}`);
-      if(d.program>0) parts.push(`學程 ${d.program}`);
+      if(d.minor>0)    parts.push(`輔系 ${d.minor}`);
+      if(d.physics>0)  parts.push(`物理 ${d.physics}`);
+      if(d.program>0)  parts.push(`學程 ${d.program}`);
+      if(d.ge>0)       parts.push(`通識 ${d.ge}`);
       if(d.elective>0) parts.push(`選修 ${d.elective}`);
       html += `<div class="check-line"><span>${c.name}（${c.credit}學分）</span><span class="mono">${parts.join(' ＋ ')}</span></div>`;
     });
@@ -1315,6 +1434,11 @@ document.getElementById('majorDongjiCheck').addEventListener('change', e=>{
   renderAll();
 });
 
+document.getElementById('minorQfCheck').addEventListener('change', e=>{
+  state.minorQf = e.target.checked;
+  renderAll();
+});
+
 function populateTrackSelect(){
   const sel = document.getElementById('trackSelect');
   Object.keys(PROGRAM_TRACKS).forEach(k=>{
@@ -1355,8 +1479,10 @@ document.getElementById('addCourseBtn').addEventListener('click', ()=>{
   if(isNaN(credit) || credit<0){ creditEl.focus(); return; }
 
   const programId = autoProgramId(category);
-  if(PROGRAM_CATEGORIES.includes(category) && !programId){
-    alert(`請先於上方「基本資料」新增一個「${category}」身份`);
+  // 已勾選「輔系計財系」時，輔系課程直接由輔系檢核處理，不需另建額外身份
+  const minorHandled = (category==='輔系' && state.minorQf);
+  if(PROGRAM_CATEGORIES.includes(category) && !programId && !minorHandled){
+    alert(`請先於上方「基本資料」新增一個「${category}」身份，或勾選「輔系計財系」`);
     return;
   }
 
@@ -1388,6 +1514,7 @@ function exportPlan(){
     major: state.major,
     majorKey: state.majorKey,
     programTrack: state.programTrack,
+    minorQf: state.minorQf,
     programs: state.programs,
     courses: state.courses,
     zeroReq: state.zeroReq,
@@ -1423,6 +1550,7 @@ function importPlan(file){
     state.major = data.major || '';
     state.majorKey = data.majorKey || null;
     state.programTrack = data.programTrack || null;
+    state.minorQf = !!data.minorQf;
     state.programs = data.programs.map(p=>({ enabled:true, requiredCredits:0, ...p }));
     state.courses = data.courses.map(c=>({ semester:null, programId:null, dualCount:false, ...c }));
     state.zeroReq = data.zeroReq || {};
@@ -1440,6 +1568,7 @@ function importPlan(file){
     document.getElementById('majorDongjiCheck').checked = (state.majorKey === 'dongji113');
     document.getElementById('trackWrap').style.display = (state.majorKey === 'dongji113') ? 'block' : 'none';
     document.getElementById('trackSelect').value = state.programTrack || '';
+    document.getElementById('minorQfCheck').checked = state.minorQf;
 
     renderAll();
   };
